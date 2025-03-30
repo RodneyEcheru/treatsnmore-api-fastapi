@@ -4,6 +4,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import settings
+import os
 
 # initialise global settings
 settings.init()
@@ -19,6 +20,7 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -40,11 +42,6 @@ def welcome():
 
 
 if __name__ == "__main__":
-    # production url, confirm using the right ip address, update to contabo ip address
-    # uvicorn.run("main:app", host="159.89.87.57", port=7013, reload=True)
-
-    """
-    development port and url http://localhost:7013, confirm using the right ip address, update to contabo ip 
-    address on production 
-    """
-    uvicorn.run("main:app", host="127.0.0.1", port=7013, reload=True)
+    host = os.getenv("HOST", "0.0.0.0")  # Use HOST from PM2, default to 0.0.0.0
+    port = int(os.getenv("PORT", "7013"))  # Use PORT from PM2, default to 7013
+    uvicorn.run("main:app", host=host, port=port, reload=True)  # reload=False for production
