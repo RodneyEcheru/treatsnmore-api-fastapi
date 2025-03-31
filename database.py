@@ -31,7 +31,7 @@ def get_db_password() -> str:
     - 'moi' for any other host
     """
     if host == "localhost" or host == "127.0.0.1":
-        return ""
+        return "moi"
     return "moi"
 
 
