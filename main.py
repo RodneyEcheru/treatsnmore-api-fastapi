@@ -44,8 +44,8 @@ def welcome():
 
 
 if __name__ == "__main__":
-    host = os.getenv("HOST", "0.0.0.0")  # Use HOST from PM2, default to 0.0.0.0
-    port = int(os.getenv("PORT", "7013"))  # Use PORT from PM2, default to 7013
+    host = "0.0.0.0"  # 62.171.141.19
+    port = 7013  # Use PORT from PM2, default to 7013
     uvicorn.run("main:app", host=host, port=port, reload=True)  # reload=False for production
 
 
