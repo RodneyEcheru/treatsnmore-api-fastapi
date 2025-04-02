@@ -19,7 +19,7 @@ api = APIRouter(
 
 # Database configuration - using original variable names
 app_database = "treats_n_more"
-host = os.getenv("DB_HOST", "localhost")
+host = 'localhost'
 user = os.getenv("DB_USER", "root")
 
 
@@ -329,3 +329,5 @@ def status():
             # Don't expose password in response
         }
     }
+
+
