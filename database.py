@@ -235,7 +235,9 @@ async def execute_insert(
 def orm(table, sql_statement, data_format, data=None):
     """Object-Relational Mapping function for database operations"""
     password = get_db_password()
-
+    connection = None
+    cursor = None
+    
     try:
         # Create connection
         connection = connect(
@@ -247,18 +249,20 @@ def orm(table, sql_statement, data_format, data=None):
 
         # Remove extra spaces in query
         sql_statement = " ".join(sql_statement.split())
-
-        with connection.cursor(dictionary=True) as cursor:
-            if data is not None:
-                # Execute INSERT/UPDATE with data values
-                cursor.execute(sql_statement, list(data.values()))
-                connection.commit()
-                return cursor.lastrowid
-            else:
-                # Execute SELECT query
-                cursor.execute(sql_statement)
-                result = format_response(table, data_format, cursor.fetchall() if data_format == 'list' else cursor.fetchone())
-                return result
+        
+        # Don't use with statement - create cursor explicitly
+        cursor = connection.cursor(dictionary=True)
+        
+        if data is not None:
+            # Execute INSERT/UPDATE with data values
+            cursor.execute(sql_statement, list(data.values()))
+            connection.commit()
+            return cursor.lastrowid
+        else:
+            # Execute SELECT query
+            cursor.execute(sql_statement)
+            result = format_response(table, data_format, cursor.fetchall() if data_format == 'list' else cursor.fetchone())
+            return result
 
     except Error as e:
         e.data_status = 'error'
@@ -269,10 +273,11 @@ def orm(table, sql_statement, data_format, data=None):
         return e
 
     finally:
-        # Ensure connection is always closed
-        if 'connection' in locals() and connection.is_connected():
+        # Ensure cursor and connection are always closed
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
             connection.close()
-
 
 
 # Keeping the original function name
