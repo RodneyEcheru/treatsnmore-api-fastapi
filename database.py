@@ -237,43 +237,42 @@ def orm(table, sql_statement, data_format, data=None):
     password = get_db_password()
 
     try:
-        # connect to mysql database
-        with connect(
-                host=host,
-                user=user,
-                password=password,
-                database=app_database,
-        ) as connection:
-            # remove extra spaces in query
-            sql_statement = " ".join(sql_statement.split())
+        # Create connection
+        connection = connect(
+            host=host,
+            user=user,
+            password=password,
+            database=app_database,
+        )
 
-            # insert into database
+        # Remove extra spaces in query
+        sql_statement = " ".join(sql_statement.split())
+
+        with connection.cursor(dictionary=True) as cursor:
             if data is not None:
-                with connection.cursor() as cursor:
-                    # Execute with data values
-                    cursor.execute(sql_statement, list(data.values()))
-                    connection.commit()
-                    return cursor.lastrowid
+                # Execute INSERT/UPDATE with data values
+                cursor.execute(sql_statement, list(data.values()))
+                connection.commit()
+                return cursor.lastrowid
             else:
-                # make database query
-                with connection.cursor(dictionary=True) as cursor:
-                    cursor.execute(sql_statement)
-
-                    # Format data according to requested format
-                    if data_format == 'list':
-                        result = format_response(table, data_format, cursor.fetchall())
-                    elif data_format == 'dictionary':
-                        result = format_response(table, data_format, cursor.fetchone())
-
-                    return result
+                # Execute SELECT query
+                cursor.execute(sql_statement)
+                result = format_response(table, data_format, cursor.fetchall() if data_format == 'list' else cursor.fetchone())
+                return result
 
     except Error as e:
         e.data_status = 'error'
-        if e.errno and e.errno == 2003:
+        if e.errno == 2003:
             e.data_code = 'mysql_server_offline'
-        if e.errno and e.errno == 1146:
+        elif e.errno == 1146:
             e.data_code = 'table_not_found'
         return e
+
+    finally:
+        # Ensure connection is always closed
+        if 'connection' in locals() and connection.is_connected():
+            connection.close()
+
 
 
 # Keeping the original function name
