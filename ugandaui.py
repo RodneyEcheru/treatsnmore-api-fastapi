@@ -46,7 +46,7 @@ def language_detect(language_abbreviation: str):
 # handle page requests
 async def page(application_page: str, product_id: int = None, country_name: str = None, product_category_id: int = None,
                limit: int = None, offset: int = None, current_page_number: int = None, brand_id: int = None,
-               brand_name: str = None):
+               brand_name: str = None, category_offset: int = 0, category_limit: int = 0):
     # test if mysql database connection is online / running
     database_connection = database.test_mysql_connection()
 
@@ -268,7 +268,7 @@ async def page(application_page: str, product_id: int = None, country_name: str 
                 'key': 4
             },
         ]
-        home_products = await category.home_category_products('uganda', 8)
+        home_products = await category.home_category_products('uganda', 8, category_offset, category_limit)
         # print(product)
         latest_products = await product.latest_products('uganda', 4)
         all_brands = await brand.all_brands()
@@ -295,6 +295,10 @@ async def page(application_page: str, product_id: int = None, country_name: str 
             product_details = None
             product_lines = None
             similar_products = None
+            product_lines_total = 0
+            product_lines_has_more = False
+            product_lines_next_offset = None
+            product_line_name = None
         else:
             # get product details
 
@@ -329,7 +333,14 @@ async def page(application_page: str, product_id: int = None, country_name: str 
             }
 
             product_details = await product.get_product(product_id, product_object)
-            product_lines = await product.get_product_line_products(product_details['product_line'], product_object)
+            # Use paginated version for product_lines (initial load: 8 products)
+            product_line_name = product_details['product_line']
+            product_lines_dict = await product.get_product_line_products_with_pagination(
+                product_line_name, product_object, limit=8, offset=0)
+            product_lines = product_lines_dict['products']
+            product_lines_total = product_lines_dict['total_count']
+            product_lines_has_more = product_lines_dict['has_more']
+            product_lines_next_offset = product_lines_dict['next_offset']
             similar_products = await product.get_similar_products(product_details['product_category_id'],
                                                                   product_object)
 
@@ -343,6 +354,9 @@ async def page(application_page: str, product_id: int = None, country_name: str 
             category_products = None
             category_page_brands = None
             product_pagination = None
+            category_total_count = 0
+            category_has_more = False
+            category_next_offset = None
         else:
             # get brands
             category_page_brands = await brand.all_brands()
@@ -384,6 +398,10 @@ async def page(application_page: str, product_id: int = None, country_name: str 
                                                                                          current_page_number)
             category_products = category_products_dict['products']
             product_pagination = category_products_dict['pagination']
+            # Infinite scroll metadata
+            category_total_count = category_products_dict['total_count']
+            category_has_more = category_products_dict['has_more']
+            category_next_offset = category_products_dict['next_offset']
 
     # category page
     if application_page == 'brand':
@@ -473,11 +491,20 @@ async def page(application_page: str, product_id: int = None, country_name: str 
         page_object['product_page'] = product_details
         page_object['product_lines'] = product_lines
         page_object['similar_products'] = similar_products
+        # Infinite scroll metadata for product_lines
+        page_object['product_lines_total'] = product_lines_total
+        page_object['product_lines_has_more'] = product_lines_has_more
+        page_object['product_lines_next_offset'] = product_lines_next_offset
+        page_object['product_line_name'] = product_line_name
 
     if application_page == 'category':
         page_object['category_products'] = category_products
         page_object['category_page_brands'] = category_page_brands
         page_object['product_pagination'] = product_pagination
+        # Infinite scroll metadata
+        page_object['total_count'] = category_total_count
+        page_object['has_more'] = category_has_more
+        page_object['next_offset'] = category_next_offset
 
     if application_page == 'brand':
         page_object['brand_products'] = brand_products
@@ -539,6 +566,54 @@ async def page(application_page: str, product_id: int = None, country_name: str 
     return page_object
 
 
+# API endpoint for loading more brand/product_line products (infinite scroll)
+# NOTE: This route MUST be defined BEFORE the catch-all /{application_page} route
+@api.get("/product_line_products")
+async def product_line_products_route(product_line: str, country_name: str, limit: int = 8, offset: int = 0):
+    """Fetch paginated products from the same brand/product line for infinite scroll"""
+    import product
+
+    # get country details
+    country_details = await country.country_details_by_name(country_name)
+
+    if country_details is None:
+        return {'error': 'Country not found', 'products': [], 'has_more': False}
+
+    # product images
+    product_images = await category.all_product_images()
+
+    # all category details
+    all_categories_db = await category.all_categories()
+
+    # all subscription packages for specific country
+    sql_statement = sql()
+    table = 'subscription_package_new'
+    country_id_string = str(country_details['country_id'])
+    subscription_packages_sql = sql_statement.select(table).where().json_id(table, 'country_id',
+                                                                            country_id_string).sql_string
+    subscription_packages = await database.orm_async(table, subscription_packages_sql, 'list')
+
+    # all subscription frequencies
+    sql_statement = sql()
+    table = 'subscription_frequency'
+    subscription_frequency_sql = sql_statement.select(table).sql_string
+    subscription_frequencies = await database.orm_async(table, subscription_frequency_sql, 'list')
+
+    # product object for formatting
+    product_object = {
+        'country_details': country_details,
+        'product_images': product_images,
+        'category_details': all_categories_db,
+        'subscription_packages': subscription_packages,
+        'subscription_frequencies': subscription_frequencies,
+    }
+
+    # Get paginated products
+    result = await product.get_product_line_products_with_pagination(product_line, product_object, limit, offset)
+
+    return result
+
+
 @api.get("/")
 def welcome():
     return {
@@ -550,8 +625,8 @@ def welcome():
 
 # page to display
 @api.get("/{application_page}")
-async def page_route(application_page: str):
-    return await page(application_page)
+async def page_route(application_page: str, category_offset: int = 0, category_limit: int = 0):
+    return await page(application_page, category_offset=category_offset, category_limit=category_limit)
 
 
 # page to display

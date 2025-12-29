@@ -262,7 +262,7 @@ async def category_type(category_id):
 
 
 @api.get("/{country_name}/{total_product_count}")
-async def home_category_products(country_name: str, total_product_count: int):
+async def home_category_products(country_name: str, total_product_count: int, category_offset: int = 0, category_limit: int = 0):
     # global all_categories  # <-- access global function
 
     # country details
@@ -331,6 +331,26 @@ async def home_category_products(country_name: str, total_product_count: int):
 
         # add products to categories
 
+        # Apply pagination if category_limit is specified
+        total_categories = len(category_hierarchy)
+
+        if category_limit > 0:
+            # Slice categories based on offset and limit
+            paginated_categories = category_hierarchy[category_offset:category_offset + category_limit]
+            has_more = (category_offset + category_limit) < total_categories
+
+            return {
+                'categories': paginated_categories,
+                'pagination': {
+                    'offset': category_offset,
+                    'limit': category_limit,
+                    'total_categories': total_categories,
+                    'has_more': has_more,
+                    'next_offset': category_offset + category_limit if has_more else None
+                }
+            }
+
+        # Return original format for backwards compatibility
         return category_hierarchy
 
     return {

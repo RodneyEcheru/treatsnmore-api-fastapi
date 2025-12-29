@@ -276,6 +276,63 @@ async def get_product_line_products(product_line: str, product_object: dict):
     return products
 
 
+async def get_product_line_products_with_pagination(product_line: str, product_object: dict, limit: int, offset: int):
+    """Get products from the same brand/product line with pagination for infinite scroll"""
+
+    # country details
+    country_id = product_object['country_details']['country_id']
+
+    # get products with pagination
+    sql_statement = sql()
+    table = 'inventory'
+    statement = sql_statement.select(table).join(
+        'inner', table, 'product_id', 'product', 'product_id').join(
+        'inner',
+        'product',
+        'product_category_id',
+        'product_category',
+        'product_category_id').where().id(
+        'country_id', country_id).and_().id(
+        'product.product_line', product_line
+    ).order_by('product.product_id', 'DESC').paginate(offset, limit).sql_string
+
+    # get total count
+    sql_statement = sql()
+    count_statement = sql_statement.custom_select(f'count(*) AS product_count', table).join(
+        'inner', table, 'product_id', 'product', 'product_id').join(
+        'inner',
+        'product',
+        'product_category_id',
+        'product_category',
+        'product_category_id').where().id(
+        'country_id', country_id).and_().id(
+        'product.product_line', product_line
+    ).sql_string
+
+    # get product details from database
+    products = await database.orm_async(table, statement, 'list')
+    product_count = await database.orm_async(table, count_statement, 'dictionary')
+
+    product_object['products'] = products
+
+    # format product / add necessary attributes
+    products = format_products(product_object)
+
+    # Calculate infinite scroll metadata
+    total_count = int(product_count['product_count'])
+    has_more = (offset + limit) < total_count
+    next_offset = offset + limit if has_more else None
+
+    return {
+        'products': products,
+        'total_count': total_count,
+        'has_more': has_more,
+        'next_offset': next_offset,
+        'current_offset': offset,
+        'limit': limit
+    }
+
+
 async def get_similar_products(product_category_id: int, product_object: dict):
 
     # country details
@@ -501,7 +558,21 @@ async def get_category_products_with_pagination(product_category_id: int, produc
 
     products = format_products(product_object)
 
-    return {'products': products, 'pagination': product_pagination}
+    # Calculate infinite scroll metadata
+    total_count = int(product_count['product_count'])
+    has_more = (offset + limit) < total_count
+    next_offset = offset + limit if has_more else None
+
+    return {
+        'products': products,
+        'pagination': product_pagination,
+        # Infinite scroll support
+        'total_count': total_count,
+        'has_more': has_more,
+        'next_offset': next_offset,
+        'current_offset': offset,
+        'limit': limit
+    }
 
 
 @api.get("/")
